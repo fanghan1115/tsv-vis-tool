@@ -1,37 +1,82 @@
 import streamlit as st
 import pandas as pd
+import os
 
-# File upload function
-def load_tsv(file):
-    return pd.read_csv(file, sep='\t')
+# Set wide layout
+st.set_page_config(page_title="Control VS Treatment", layout="wide")
 
-# Set the webpage title
-st.title('Upload and Display TSV Files')
+st.title("Control VS Treatment")
 
-# Upload the first TSV file
-st.sidebar.header("Upload the first TSV file")
-uploaded_file_1 = st.sidebar.file_uploader("Choose the first TSV file", type=["tsv"])
+# Data source dropdown
+DATA_SOURCES = ["AUTD.tsv", "AUTD_Serp.tsv", "AUTD_Copilot.tsv"]
+selected_file = st.selectbox("Select Data Source", DATA_SOURCES)
 
-# Upload the second TSV file
-st.sidebar.header("Upload the second TSV file")
-uploaded_file_2 = st.sidebar.file_uploader("Choose the second TSV file", type=["tsv"])
+# Check if file exists
+if not os.path.exists(selected_file):
+    st.error(f"{selected_file} not found. Please place the TSV file in the project root directory.")
+    st.stop()
 
-if uploaded_file_1 and uploaded_file_2:
-    # Read the TSV files
-    df1 = load_tsv(uploaded_file_1)
-    df2 = load_tsv(uploaded_file_2)
-    
-    # Ensure the tables have the same columns
-    if set(df1.columns) == {"Query", "Fidelity", "PUrl", "ImageUrl"} and set(df2.columns) == {"Query", "Fidelity", "PUrl", "ImageUrl"}:
-        # Display the tables
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Left Table")
-            st.dataframe(df1)
-        with col2:
-            st.subheader("Right Table")
-            st.dataframe(df2)
-    else:
-        st.error("The uploaded files must contain the columns 'Query', 'Fidelity', 'PUrl', and 'ImageUrl'!")
-else:
-    st.warning("Please upload two TSV files.")
+# Read TSV
+df = pd.read_csv(selected_file, sep="\t")
+
+required_cols = {"Query", "MUrl", "PUrl", "Fidelity_Control", "Fidelity_Treatment",
+                 "InL1WithoutSpaceV", "Experiment_InL1WithoutSpaceV"}
+
+if not set(df.columns).issuperset(required_cols):
+    st.error(f"The TSV is missing required columns: {', '.join(required_cols)}")
+    st.stop()
+
+# Group by Query
+grouped = df.groupby("Query")
+query_list = list(grouped.groups.keys())
+
+# Initialize current Query index
+if "idx" not in st.session_state:
+    st.session_state.idx = 0
+if "current_file" not in st.session_state:
+    st.session_state.current_file = selected_file
+
+# Reset index if data source changed
+if st.session_state.current_file != selected_file:
+    st.session_state.idx = 0
+    st.session_state.current_file = selected_file
+
+# Previous / Next Query buttons
+col_prev, col_next = st.columns([1, 1])
+with col_prev:
+    if st.button("⬅ Previous") and st.session_state.idx > 0:
+        st.session_state.idx -= 1
+with col_next:
+    if st.button("Next ➡") and st.session_state.idx < len(query_list) - 1:
+        st.session_state.idx += 1
+
+# Current Query data
+current_query = query_list[st.session_state.idx]
+qdf = grouped.get_group(current_query)
+
+st.subheader(f"Query: {current_query}  ({st.session_state.idx + 1}/{len(query_list)})")
+
+# Display Fidelity
+fidelity_control = qdf["Fidelity_Control"].iloc[0]
+fidelity_treatment = qdf["Fidelity_Treatment"].iloc[0]
+st.write(f"**Fidelity_Control:** {fidelity_control}")
+st.write(f"**Fidelity_Treatment:** {fidelity_treatment}")
+
+# Categorize for three columns
+left = qdf[(qdf["InL1WithoutSpaceV"] == True) & (qdf["Experiment_InL1WithoutSpaceV"] == False)]
+middle = qdf[(qdf["InL1WithoutSpaceV"] == True) & (qdf["Experiment_InL1WithoutSpaceV"] == True)]
+right = qdf[(qdf["InL1WithoutSpaceV"] == False) & (qdf["Experiment_InL1WithoutSpaceV"] == True)]
+
+col1, col2, col3 = st.columns(3)
+
+def show_images(df, col, title):
+    col.markdown(f"### {title} ({len(df)})")
+    for _, r in df.iterrows():
+        # Image clickable to open MUrl
+        col.markdown(f"[![image]({r['MUrl']})]({r['MUrl']})")
+        # Display PUrl as hyperlink
+        col.markdown(f"[PUrl of Image]({r['PUrl']})")
+
+show_images(left, col1, "Control")
+show_images(middle, col2, "Control & Treatment")
+show_images(right, col3, "Treatment")
