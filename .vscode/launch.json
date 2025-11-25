@@ -8,7 +8,7 @@
             "module": "streamlit",
             "args": [
                 "run",
-                "${workspaceFolder}/tsv_compare_vis.py"
+                "${workspaceFolder}/streamlit_app.py"
             ],
             "console": "integratedTerminal"
         }
